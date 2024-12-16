@@ -1,0 +1,336 @@
+import pygame
+import random
+
+# Initialize Pygame
+pygame.init()
+
+# Screen dimensions
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Chaos Shooter with Boss Health Bar")
+
+# Load Images
+spaceship_image = pygame.image.load("spaceship.png")
+spaceship_image = pygame.transform.scale(spaceship_image, (50, 50))  # Adjust size if needed
+chicken_image = pygame.image.load("chicken.png")
+chicken_image = pygame.transform.scale(chicken_image, (40, 40))  # Adjust size if needed
+boss_image = pygame.image.load("chicken.png")
+boss_image = pygame.transform.scale(boss_image, (150, 150))  # Scale up for the boss
+
+# Colors
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+YELLOW = (255, 255, 0)
+BLUE = (0, 0, 255)
+WHITE = (255, 255, 255)
+DIM_WHITE = (100, 100, 100)
+GREEN = (0, 255, 0)
+
+# Spaceship
+ship_width, ship_height = 50, 50
+ship = pygame.Rect(WIDTH // 2, HEIGHT - 70, ship_width, ship_height)
+ship_speed = 7
+bullets = []
+bullet_speed = -10
+bullet_width = 5  # Initial bullet width
+bullet_height = 10  # Initial bullet height
+num_shooters = 1  # Number of shooters (increases with gifts)
+
+# Enemies (chickens)
+enemies = []
+enemy_speed = 2
+enemy_spawn_rate = 20  # Higher = slower spawns
+
+# Boss variables
+boss = None
+boss_health = 50  # Boss takes 30 hits to explode
+boss_max_health = 50  # Used to calculate health bar
+boss_bullets = []
+boss_bullet_speed = 7
+boss_move_direction = 1  # Boss moves horizontally
+boss_active = False
+
+# Gifts
+gifts = []
+gift_spawn_time = pygame.time.get_ticks()
+gift_delay = 5000  # 5 seconds (5000 milliseconds)
+gift_count = 0  # Track the number of gifts spawned
+max_gifts = 3  # Only 3 gifts in the entire game
+
+# Particles for explosions and fireworks
+particles = []
+fireworks = []
+
+# Starfield for background
+stars = [{'x': random.randint(0, WIDTH), 'y': random.randint(0, HEIGHT), 'speed': random.randint(1, 2)} for _ in range(50)]
+
+# Score
+score = 0
+
+# Font
+font = pygame.font.Font(None, 36)
+
+# Clock
+clock = pygame.time.Clock()
+
+# Add enemy function
+def add_enemy():
+    x = random.randint(0, WIDTH - 40)
+    y = random.randint(-100, -40)
+    enemies.append(pygame.Rect(x, y, 40, 40))
+
+# Add gift function
+def add_gift():
+    global gift_count
+    if gift_count < max_gifts:  # Only spawn a gift if the count is below the max
+        x = random.randint(50, WIDTH - 50)
+        y = random.randint(-100, -50)
+        gifts.append(pygame.Rect(x, y, 20, 20))
+        gift_count += 1  # Increment the count of gifts spawned
+
+# Add particle effect
+def add_particles(pos, color):
+    for _ in range(15):
+        particles.append({
+            'x': pos[0],
+            'y': pos[1],
+            'dx': random.uniform(-3, 3),
+            'dy': random.uniform(-3, 3),
+            'radius': random.randint(2, 5),
+            'color': color,
+            'life': random.randint(20, 50)
+        })
+
+# Add fireworks effect
+def add_fireworks():
+    for _ in range(5):
+        x = random.randint(100, WIDTH - 100)
+        y = random.randint(100, HEIGHT - 300)
+        for _ in range(30):
+            fireworks.append({
+                'x': x,
+                'y': y,
+                'dx': random.uniform(-4, 4),
+                'dy': random.uniform(-4, 4),
+                'radius': random.randint(2, 6),
+                'color': random.choice([RED, YELLOW, BLUE, GREEN, WHITE]),
+                'life': random.randint(30, 60)
+            })
+
+# Game Over function
+def display_game_over():
+    game_over_text = font.render("GAME OVER", True, RED)
+    text_rect = game_over_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+    screen.blit(game_over_text, text_rect)
+    pygame.display.flip()
+    pygame.time.delay(3000)  # Wait for 3 seconds before quitting
+
+# Congratulation function
+def display_congratulations():
+    add_fireworks()  # Trigger fireworks
+    for _ in range(150):  # Keep displaying for a while
+        screen.fill(BLACK)
+        draw_stars()  # Draw moving stars
+        congratulations_text = font.render("CONGRATULATIONS! YOU WIN!", True, GREEN)
+        text_rect = congratulations_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+        screen.blit(congratulations_text, text_rect)
+
+        # Update and draw fireworks
+        for firework in fireworks[:]:
+            firework['x'] += firework['dx']
+            firework['y'] += firework['dy']
+            firework['life'] -= 1
+            if firework['life'] <= 0:
+                fireworks.remove(firework)
+            else:
+                pygame.draw.circle(screen, firework['color'], (int(firework['x']), int(firework['y'])), firework['radius'])
+
+        pygame.display.flip()
+        pygame.time.delay(20)
+
+# Spawn boss function
+def spawn_boss():
+    global boss, boss_health, boss_active
+    boss = pygame.Rect(WIDTH // 2 - 75, 50, 150, 150)  # Centered boss
+    boss_health = boss_max_health  # Boss starts with full health
+    boss_active = True
+
+# Draw boss health bar
+def draw_boss_health():
+    health_bar_width = 150
+    health_bar_height = 10
+    health_ratio = boss_health / boss_max_health
+    health_bar_color = GREEN if health_ratio > 0.5 else RED  # Green when health > 50%, Red otherwise
+    pygame.draw.rect(screen, RED, (boss.x, boss.y - 20, health_bar_width, health_bar_height))  # Background bar
+    pygame.draw.rect(screen, health_bar_color, (boss.x, boss.y - 20, health_bar_width * health_ratio, health_bar_height))  # Current health
+
+    # Display numeric health
+    health_text = font.render(f"{boss_health}/{boss_max_health}", True, WHITE)
+    screen.blit(health_text, (boss.x + health_bar_width // 2 - health_text.get_width() // 2, boss.y - 40))
+
+# Draw moving stars
+def draw_stars():
+    for star in stars:
+        pygame.draw.circle(screen, DIM_WHITE, (star['x'], star['y']), 1)
+        star['y'] += star['speed']
+        if star['y'] > HEIGHT:
+            star['y'] = 0
+            star['x'] = random.randint(0, WIDTH)
+
+# Game loop
+running = True
+frame_count = 0
+while running:
+    screen.fill(BLACK)
+
+    # Draw moving stars
+    draw_stars()
+
+    # Event handling
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    # Player movement
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_LEFT] and ship.left > 0:
+        ship.x -= ship_speed
+    if keys[pygame.K_RIGHT] and ship.right < WIDTH:
+        ship.x += ship_speed
+    if keys[pygame.K_SPACE]:
+        if frame_count % 10 == 0:  # Fire rate limit
+            # Generate bullets for each shooter
+            for i in range(num_shooters):
+                offset = (i - (num_shooters - 1) / 2) * 15  # Spread bullets evenly
+                bullets.append(
+                    pygame.Rect(ship.centerx + offset - bullet_width // 2, ship.top - bullet_height, bullet_width, bullet_height)
+                )
+
+    # Update bullets
+    for bullet in bullets[:]:
+        bullet.y += bullet_speed
+        if bullet.bottom < 0:
+            bullets.remove(bullet)
+
+    # Spawn enemies
+    if not boss_active and frame_count % enemy_spawn_rate == 0:
+        add_enemy()
+
+    # Spawn gifts with delay and count limit
+    current_time = pygame.time.get_ticks()
+    if current_time - gift_spawn_time >= gift_delay and gift_count < max_gifts:
+        add_gift()
+        gift_spawn_time = current_time
+
+    # Update enemies
+    for enemy in enemies[:]:
+        enemy.y += enemy_speed
+        if enemy.top > HEIGHT:
+            enemies.remove(enemy)
+        if enemy.colliderect(ship):
+            display_game_over()  # Show Game Over message
+            running = False  # End the game
+
+    # Update gifts
+    for gift in gifts[:]:
+        gift.y += 3
+        if gift.colliderect(ship):
+            ship_speed += 1  # Increase ship speed
+            bullet_width += 2  # Increase bullet width
+            num_shooters += 1  # Add an extra shooter
+            gifts.remove(gift)
+        if gift.top > HEIGHT:
+            gifts.remove(gift)
+
+    # Handle boss logic
+    if score >= 80 and not boss_active:
+        spawn_boss()
+
+    if boss_active:
+        # Move boss
+        boss.x += boss_move_direction * 5
+        if boss.left <= 0 or boss.right >= WIDTH:
+            boss_move_direction *= -1
+
+        # Boss shooting
+        if frame_count % 30 == 0:
+            boss_bullets.append(pygame.Rect(boss.centerx - 5, boss.bottom, 10, 15))
+
+        # Update boss bullets
+        for b_bullet in boss_bullets[:]:
+            b_bullet.y += boss_bullet_speed
+            if b_bullet.top > HEIGHT:
+                boss_bullets.remove(b_bullet)
+            if b_bullet.colliderect(ship):
+                display_game_over()  # Show Game Over message
+                running = False  # End the game
+
+        # Draw boss
+        screen.blit(boss_image, (boss.x, boss.y))
+
+        # Draw boss health bar
+        draw_boss_health()
+
+        # Check for boss collisions with player bullets
+        for bullet in bullets[:]:
+            if boss.colliderect(bullet):
+                bullets.remove(bullet)
+                boss_health -= 1
+                if boss_health <= 0:
+                    add_particles(boss.center, RED)
+                    display_congratulations()  # Show Congratulations message with fireworks
+                    boss_active = False
+                    boss = None  # Boss is destroyed
+                    running = False
+
+    # Check for collisions
+    for bullet in bullets[:]:
+        for enemy in enemies[:]:
+            if bullet.colliderect(enemy):
+                bullets.remove(bullet)
+                enemies.remove(enemy)
+                add_particles(enemy.center, RED)
+                score += 1
+                break
+
+    # Update particles
+    for particle in particles[:]:
+        particle['x'] += particle['dx']
+        particle['y'] += particle['dy']
+        particle['life'] -= 1
+        if particle['life'] <= 0:
+            particles.remove(particle)
+
+    # Draw spaceship
+    screen.blit(spaceship_image, (ship.x, ship.y))
+
+    # Draw bullets
+    for bullet in bullets:
+        pygame.draw.rect(screen, YELLOW, bullet)
+
+    # Draw enemies (chickens)
+    for enemy in enemies:
+        screen.blit(chicken_image, (enemy.x, enemy.y))
+
+    # Draw boss bullets
+    for b_bullet in boss_bullets:
+        pygame.draw.rect(screen, RED, b_bullet)
+
+    # Draw gifts
+    for gift in gifts:
+        pygame.draw.rect(screen, BLUE, gift)
+
+    # Draw particles
+    for particle in particles:
+        pygame.draw.circle(screen, particle['color'], (int(particle['x']), int(particle['y'])), particle['radius'])
+
+    # Draw score
+    score_text = font.render(f"Score: {score}", True, WHITE)
+    screen.blit(score_text, (10, 10))
+
+    # Update display
+    pygame.display.flip()
+    clock.tick(60)
+    frame_count += 1
+
+pygame.quit()
